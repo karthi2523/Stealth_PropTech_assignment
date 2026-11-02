@@ -146,6 +146,17 @@ pnpm --filter bill-splitter-api cf-typegen
 You can use AI tools. Tell us which ones and where in your answers on the form.
 You must understand every line you submit. We check this with your video and in a live call. "The AI wrote it" is not an answer.
 
+## Decisions
+
+1. **Integer Cent Arithmetic and Deterministic Remainder Distribution**  
+   All monetary amounts are strictly tracked as integer cents to eliminate floating-point precision issues. When splitting a bill, the base share is `Math.floor(totalCents / n)` and remainder cents (`totalCents % n`) are assigned `+1` cent to the earliest registered members in the home (`ORDER BY rowid ASC`). This ensures shares always sum exactly to `totalCents` with deterministic, order-stable allocation.
+
+2. **Atomic Concurrency and Idempotent Payments via SQL Conditional Updates**  
+   To prevent double-payments and race conditions across distributed Cloudflare Workers, payments execute an atomic conditional update: `UPDATE shares SET paid_at = ?, idempotency_key = ? WHERE id = ? AND bill_id = ? AND paid_at IS NULL`. Inspecting `meta.changes` guarantees that only one concurrent request marks a share paid. If 0 rows were updated, a follow-up query inspects the record: identical `Idempotency-Key` headers return `200` with the original timestamp (safe retry), whereas different keys return `409 Conflict`.
+
+3. **Database-Level Invariants via Named Constraints**  
+   Integrity is enforced directly within D1 (SQLite) using explicit named constraints: foreign keys with cascade deletions (`fk_members_home`, `fk_bills_home`, `fk_shares_bill`, `fk_shares_member`) prevent orphan records, while `CHECK` constraints (`check_members_name_non_empty`, `check_bills_total_cents_positive`, `check_shares_amount_cents_positive`) prevent invalid, zero, or negative monetary inputs at the storage layer.
+
 ## How to submit
 
 1. Click **Use this template**, then **Create a new repository**. Make the repository **public**.
